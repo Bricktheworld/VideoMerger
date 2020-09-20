@@ -18,8 +18,8 @@
 
 using namespace std;
 
-void run_ffmpeg(vector<string> *, int, int, int, int);
-string get_args(vector<string> *, int, int, int, int);
+void run_ffmpeg(vector<string> *, int, int, int, int, string);
+string get_args(vector<string> *, int, int, int, int, string);
 vector<string> *get_cropped_videos(vector<string> *_files, string extension, int bWidth, int bHeight);
 string exec(const char *cmd);
 
@@ -90,7 +90,7 @@ int main()
         int height = 1080 / rows;
         //Run the ffmpeg command with all of the files retreived
         vector<string> *cropped_files = get_cropped_videos(&files, extension, width, height);
-        run_ffmpeg(cropped_files, rows, columns, width, height);
+        run_ffmpeg(cropped_files, rows, columns, width, height, extension);
     }
 
     //If opendir returns a nuoll pointer, we want to fail the program
@@ -101,25 +101,28 @@ int main()
     }
 }
 
-void run_ffmpeg(vector<string> *files, int rows, int columns, int width, int height)
+void run_ffmpeg(vector<string> *files, int rows, int columns, int width, int height, string extension)
 {
     //Get the arguments for running the ffmpeg command
-    string args = get_args(files, rows, columns, width, height);
+    string args = get_args(files, rows, columns, width, height, extension);
     cout << "Running ffmpeg " + args << endl;
     system(("ffmpeg " + args).c_str());
 }
 
-string get_args(vector<string> *files, int rows, int columns, int width, int height)
+string get_args(vector<string> *files, int rows, int columns, int width, int height, string extension)
 {
     string includes = "";
     string filter = " -filter_complex \"";
     string videos = "";
     string xstack = "";
-    string amerge = "";
+    string amix = "";
 
     for (int i = 0; i < files->size(); i++)
     {
         cout << "Getting file " << files->at(i) << endl;
+        string file_without_extension = files->at(i).substr(0, files->at(i).rfind("."));
+        cout << "Removing file " << file_without_extension << "_borderless" << extension << endl;
+        system(("rm " + file_without_extension + "_borderless" + extension).c_str());
         includes += (" -i cropped/" + files->at(i));
     }
     for (int i = 0; i < files->size(); i++)
@@ -174,18 +177,16 @@ string get_args(vector<string> *files, int rows, int columns, int width, int hei
             }
             else
             {
-                xstack += "[out]";
+                xstack += "[out];";
             }
         }
     }
 
-    int counter = 0;
-
-    // amerge += "amerge=inputs=" + to_string(counter) + "[a]";
+    amix += "amix=inputs=" + to_string(files->size());
 
     delete files;
 
-    return includes + filter + videos + xstack + "\" -map \"[out]\" output.mov";
+    return includes + filter + videos + xstack + amix + "\" -map \"[out]\" output.mov";
 }
 
 vector<string> *get_cropped_videos(vector<string> *_files, string extension, int bWidth, int bHeight)
