@@ -20,7 +20,7 @@ using namespace std;
 
 void run_ffmpeg(vector<string> *, int, int, int, int, string);
 string get_args(vector<string> *, int, int, int, int, string);
-vector<string> *get_cropped_videos(vector<string> *_files, string extension, int bWidth, int bHeight);
+vector<string> *get_cropped_videos(vector<string> *_files, double *longestVideoLength, string extension, int bWidth, int bHeight);
 string exec(const char *cmd);
 
 int main()
@@ -88,8 +88,12 @@ int main()
 
         int width = 1920 / columns;
         int height = 1080 / rows;
+
+        double longestVideoLength = 0;
         //Run the ffmpeg command with all of the files retreived
-        vector<string> *cropped_files = get_cropped_videos(&files, extension, width, height);
+        vector<string> *cropped_files = get_cropped_videos(&files, &longestVideoLength, extension, width, height);
+
+        system(("ffmpeg -t " + to_string(longestVideoLength) + "  -f lavfi -i color=c=black:s=640x480 -c:v libx264 -tune stillimage -pix_fmt yuv420p empty.mp4").c_str());
         run_ffmpeg(cropped_files, rows, columns, width, height, extension);
     }
 
@@ -107,6 +111,7 @@ void run_ffmpeg(vector<string> *files, int rows, int columns, int width, int hei
     string args = get_args(files, rows, columns, width, height, extension);
     cout << "Running ffmpeg " + args << endl;
     system(("ffmpeg " + args).c_str());
+    system("rm empty.mp4");
 }
 
 string get_args(vector<string> *files, int rows, int columns, int width, int height, string extension)
@@ -117,24 +122,31 @@ string get_args(vector<string> *files, int rows, int columns, int width, int hei
     string xstack = "";
     string amix = "";
 
-    for (int i = 0; i < files->size(); i++)
+    for (int i = 0; i < rows * columns; i++)
     {
-        cout << "Getting file " << files->at(i) << endl;
-        string file_without_extension = files->at(i).substr(0, files->at(i).rfind("."));
-        cout << "Removing file " << file_without_extension << "_borderless" << extension << endl;
-        system(("rm " + file_without_extension + "_borderless" + extension).c_str());
-        includes += (" -i cropped/" + files->at(i));
+        if (i >= files->size())
+        {
+            includes += (" -i empty.mp4");
+        }
+        else
+        {
+            cout << "Getting file " << files->at(i) << endl;
+            string file_without_extension = files->at(i).substr(0, files->at(i).rfind("."));
+            cout << "Removing file " << file_without_extension << "_borderless" << extension << endl;
+            system(("rm " + file_without_extension + "_borderless" + extension).c_str());
+            includes += (" -i cropped/" + files->at(i));
+        }
     }
-    for (int i = 0; i < files->size(); i++)
+    for (int i = 0; i < rows * columns; i++)
     {
         videos += "[" + to_string(i) + ":v] setpts=PTS-STARTPTS, scale=" + to_string(width) + ":" + to_string(height) + " [a" + to_string(i) + "];";
     }
-    for (int i = 0; i < files->size(); i++)
+    for (int i = 0; i < rows * columns; i++)
     {
         xstack += "[a" + to_string(i) + "]";
     }
 
-    xstack += "xstack=inputs=" + to_string(files->size()) + ":layout=";
+    xstack += "xstack=inputs=" + to_string(rows * columns) + ":layout=";
 
     for (int i = 0; i < rows; i++)
     {
@@ -186,10 +198,10 @@ string get_args(vector<string> *files, int rows, int columns, int width, int hei
 
     delete files;
 
-    return includes + filter + videos + xstack + amix + "\" -map \"[out]\" output.mov";
+    return includes + filter + videos + xstack + amix + "\" -map \"[out]\" output.mp4";
 }
 
-vector<string> *get_cropped_videos(vector<string> *_files, string extension, int bWidth, int bHeight)
+vector<string> *get_cropped_videos(vector<string> *_files, double *longestVideoLength, string extension, int bWidth, int bHeight)
 {
     int status = system("mkdir cropped");
     cout << "Status: " + to_string(status) << endl;
@@ -203,7 +215,7 @@ vector<string> *get_cropped_videos(vector<string> *_files, string extension, int
         {
             system("rm -rf cropped");
             delete files;
-            return get_cropped_videos(_files, extension, bWidth, bHeight);
+            return get_cropped_videos(_files, longestVideoLength, extension, bWidth, bHeight);
         }
         else
         {
@@ -295,6 +307,13 @@ vector<string> *get_cropped_videos(vector<string> *_files, string extension, int
             {
                 if (boost::ends_with(ent->d_name, extension))
                 {
+                    string res = exec(("ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 " + string(ent->d_name)).c_str());
+                    double duration = atof(res.c_str());
+                    if (duration > *longestVideoLength)
+                    {
+                        *longestVideoLength = duration;
+                    }
+
                     files->push_back(ent->d_name);
                 }
             }
