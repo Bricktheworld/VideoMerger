@@ -228,8 +228,14 @@ vector<string> *get_cropped_videos(vector<string> *_files, double *longestVideoL
                 {
                     if (boost::ends_with(ent->d_name, extension))
                     {
-
+                        string res = exec(("ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 " + string(ent->d_name)).c_str());
+                        double duration = atof(res.c_str());
+                        if (duration > *longestVideoLength)
+                        {
+                            *longestVideoLength = duration;
+                        }
                         files->push_back(ent->d_name);
+                        cout << "Adding file " << ent->d_name << endl;
                     }
                 }
                 closedir(croppedDir);
