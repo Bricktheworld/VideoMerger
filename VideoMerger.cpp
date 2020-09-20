@@ -18,9 +18,9 @@
 
 using namespace std;
 
-void run_ffmpeg(vector<dirent *> *, int, int);
-string get_args(vector<dirent *> *, int, int);
-vector<dirent *> *get_cropped_videos(vector<dirent *> *_files, string extension, int bWidth, int bHeight);
+void run_ffmpeg(vector<string> *, int, int, int, int);
+string get_args(vector<string> *, int, int, int, int);
+vector<string> *get_cropped_videos(vector<string> *_files, string extension, int bWidth, int bHeight);
 string exec(const char *cmd);
 
 int main()
@@ -50,7 +50,7 @@ int main()
     string extension = file_name.substr(file_name.find("."));
 
     //List of files to be retreived from the program
-    vector<dirent *> files;
+    vector<string> files;
 
     //Open the directory
     if ((directory = opendir(".")) != NULL)
@@ -64,7 +64,7 @@ int main()
             if (str.rfind(name, 0) == 0 && boost::ends_with(str, extension))
             {
                 //Add the file to the list of files
-                files.push_back(ent);
+                files.push_back(ent->d_name);
 
                 //Print out the retreived file
                 cout << "Retreived File " << ent->d_name << endl;
@@ -89,7 +89,8 @@ int main()
         int width = 1920 / columns;
         int height = 1080 / rows;
         //Run the ffmpeg command with all of the files retreived
-        run_ffmpeg(get_cropped_videos(&files, extension, width, height), rows, columns);
+        vector<string> *cropped_files = get_cropped_videos(&files, extension, width, height);
+        run_ffmpeg(cropped_files, rows, columns, width, height);
     }
 
     //If opendir returns a nuoll pointer, we want to fail the program
@@ -100,71 +101,98 @@ int main()
     }
 }
 
-void run_ffmpeg(vector<dirent *> *files, int rows, int columns)
+void run_ffmpeg(vector<string> *files, int rows, int columns, int width, int height)
 {
     //Get the arguments for running the ffmpeg command
-    string args = get_args(files, rows, columns);
+    string args = get_args(files, rows, columns, width, height);
     cout << "Running ffmpeg " + args << endl;
     system(("ffmpeg " + args).c_str());
 }
 
-string get_args(vector<dirent *> *files, int rows, int columns)
+string get_args(vector<string> *files, int rows, int columns, int width, int height)
 {
     string includes = "";
     string filter = " -filter_complex \"";
-    string hstack = "";
-    string vstack = "";
+    string videos = "";
+    string xstack = "";
     string amerge = "";
 
     for (int i = 0; i < files->size(); i++)
     {
-        dirent *file = files->at(i);
-        cout << "Getting file " << static_cast<void *>(files->at(i)) << endl;
-        includes += (" -i cropped/" + string(file->d_name));
+        cout << "Getting file " << files->at(i) << endl;
+        includes += (" -i cropped/" + files->at(i));
+    }
+    for (int i = 0; i < files->size(); i++)
+    {
+        videos += "[" + to_string(i) + ":v] setpts=PTS-STARTPTS, scale=" + to_string(width) + ":" + to_string(height) + " [a" + to_string(i) + "];";
+    }
+    for (int i = 0; i < files->size(); i++)
+    {
+        xstack += "[a" + to_string(i) + "]";
+    }
+
+    xstack += "xstack=inputs=" + to_string(files->size()) + ":layout=";
+
+    for (int i = 0; i < rows; i++)
+    {
+        for (int j = 0; j < columns; j++)
+        {
+            if (j == 0)
+            {
+                xstack += "0";
+            }
+            else
+            {
+                for (int k = 0; k < j; k++)
+                {
+                    xstack += "w" + to_string(k);
+                    if (k != j - 1)
+                    {
+                        xstack += "+";
+                    }
+                }
+            }
+            xstack += "_";
+            if (i == 0)
+            {
+                xstack += "0";
+            }
+            else
+            {
+                for (int k = 0; k < i; k++)
+                {
+                    xstack += "h" + to_string(k);
+                    if (k != i - 1)
+                    {
+                        xstack += "+";
+                    }
+                }
+            }
+            if (i != rows - 1 || j != columns - 1)
+            {
+                xstack += "|";
+            }
+            else
+            {
+                xstack += "[out]";
+            }
+        }
     }
 
     int counter = 0;
 
-    //Rows
-    for (int i = 0; i < rows; i++)
-    {
-        int inputs = 0;
-        if (files->size() <= counter)
-            continue;
-        //Columns
-        for (int j = 0; j < columns; j++)
-        {
-            if (files->size() <= counter)
-                break;
-            hstack += "[" + to_string(counter) + ":v]";
-            amerge += "[" + to_string(counter) + ":a]";
-            counter++;
-            inputs++;
-        }
-        hstack += "hstack=" + to_string(inputs) + "[";
-        char c = i + 'i';
-        hstack.push_back(c);
-        hstack += "];";
-
-        vstack += "[";
-        vstack.push_back(c);
-        vstack += "]";
-    }
-
-    vstack += "vstack[v];";
-    amerge += "amerge=inputs=" + to_string(counter) + "[a]";
+    // amerge += "amerge=inputs=" + to_string(counter) + "[a]";
 
     delete files;
 
-    return includes +
-           filter + hstack + vstack + amerge + "\" -map \"[v] \" -map \"[a] \" -ac 2 -shortest output.mp4";
+    return includes + filter + videos + xstack + "\" -map \"[out]\" output.mov";
 }
 
-vector<dirent *> *get_cropped_videos(vector<dirent *> *_files, string extension, int bWidth, int bHeight)
+vector<string> *get_cropped_videos(vector<string> *_files, string extension, int bWidth, int bHeight)
 {
     int status = system("mkdir cropped");
     cout << "Status: " + to_string(status) << endl;
-    vector<dirent *> *files = new vector<dirent *>;
+    vector<string> *files = new vector<string>;
     if (status == 256)
     {
         char res;
@@ -173,6 +201,7 @@ vector<dirent *> *get_cropped_videos(vector<dirent *> *_files, string extension,
         if (res == 'y')
         {
             system("rm -rf cropped");
+            delete files;
             return get_cropped_videos(_files, extension, bWidth, bHeight);
         }
         else
@@ -187,8 +216,7 @@ vector<dirent *> *get_cropped_videos(vector<dirent *> *_files, string extension,
                     if (boost::ends_with(ent->d_name, extension))
                     {
 
-                        files->push_back(ent);
-                        cout << "Found cropped video " + string(ent->d_name) << endl;
+                        files->push_back(ent->d_name);
                     }
                 }
                 closedir(croppedDir);
@@ -209,8 +237,12 @@ vector<dirent *> *get_cropped_videos(vector<dirent *> *_files, string extension,
         {
             for (int i = 0; i < _files->size(); i++)
             {
+                string file_name = _files->at(i);
+                string new_file_name = file_name.substr(0, file_name.size() - extension.size()) + "_borderless" + extension;
+                string crop_detect = exec(("ffmpeg -i " + _files->at(i) + " -t 1 -vf cropdetect -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1").c_str());
+                system(("ffmpeg -i " + _files->at(i) + " -filter:v \"" + crop_detect + "\" " + new_file_name).c_str());
 
-                string res = exec(("ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 " + string(_files->at(i)->d_name)).c_str());
+                string res = exec(("ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 " + new_file_name).c_str());
 
                 int vWidth = atoi(res.substr(0, res.rfind("x")).c_str());
                 int vHeight = atoi(res.substr(res.rfind("x") + 1, res.size() - 1).c_str());
@@ -220,25 +252,32 @@ vector<dirent *> *get_cropped_videos(vector<dirent *> *_files, string extension,
                 dimensions.y = vHeight;
 
                 double factor = double(bWidth * vHeight) / double(bHeight * vWidth);
+                cout << "dimensions are " << res << endl;
 
                 Side largerSide;
                 if (vHeight <= vWidth)
                 {
+                    cout << "Larger side is width" << endl;
                     largerSide = Side::width;
                 }
                 else if (vHeight > vWidth)
                 {
+                    cout << "Larger side is height" << endl;
                     largerSide = Side::height;
                 }
+                else
+                {
+                    cout << "Sides are equal" << endl;
+                }
 
-                (*get_side(&dimensions, largerSide)) *= factor;
+                (*get_side(&dimensions, largerSide)) *= largerSide == Side::width ? factor : 1 / factor;
                 struct XYVector offset;
                 offset.x = 0;
                 offset.y = 0;
 
                 get_offset(&offset, &dimensions, largerSide, vWidth, vHeight);
 
-                string command = "ffmpeg -i " + string(_files->at(i)->d_name) + " -filter:v \"crop=";
+                string command = "ffmpeg -i " + new_file_name + " -filter:v \"crop=";
                 command.append(to_string(dimensions.x));
                 command.append(":");
                 command.append(to_string(dimensions.y));
@@ -246,7 +285,7 @@ vector<dirent *> *get_cropped_videos(vector<dirent *> *_files, string extension,
                 command.append(to_string(offset.x));
                 command.append(":");
                 command.append(to_string(offset.y));
-                command.append("\" cropped/" + string(_files->at(i)->d_name));
+                command.append("\" cropped/" + _files->at(i));
                 cout << "Running command " + command << endl;
                 system(command.c_str());
             }
@@ -255,12 +294,14 @@ vector<dirent *> *get_cropped_videos(vector<dirent *> *_files, string extension,
             {
                 if (boost::ends_with(ent->d_name, extension))
                 {
-
-                    files->push_back(ent);
-                    cout << "Found cropped video " + string(ent->d_name);
+                    files->push_back(ent->d_name);
                 }
             }
             closedir(croppedDir);
+            for (int i = 0; i < files->size(); i++)
+            {
+                cout << "File " << files->at(i) << endl;
+            }
             return files;
         }
         else
@@ -287,5 +328,3 @@ std::string exec(const char *cmd)
     }
     return result;
 }
-
-//ffmpeg -i video0.mov -i video1.mov -i video2.mov -i video3.mov -filter_complex "[0:v] setpts=PTS-STARTPTS, scale=qvga [a0];[1:v] setpts=PTS-STARTPTS, scale=qvga [a1];[2:v] setpts=PTS-STARTPTS, scale=qvga [a2];[3:v] setpts=PTS-STARTPTS, scale=qvga [a3];[a0][a1][a2][a3]xstack=inputs=4:layout=0_0|0_h0|w0_0|w0_h0[out]" -map "[out]" -c:v libx264 -t '30' -f matroska output.mov
