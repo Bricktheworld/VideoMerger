@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <array>
+#include <math.h>
 
 #include "XYVector.h"
 #include "SideEnum.h"
@@ -79,12 +80,12 @@ int main()
         cout << "Columns?: ";
         cin >> columns;
 
-        if (columns * rows < files.size())
-        {
-            cout << "columns x Rows = " + to_string(rows * columns) + ", while the number of vides is " + to_string(files.size()) << endl;
-            // perror("");
-            return EXIT_FAILURE;
-        }
+        // if (columns * rows < files.size())
+        // {
+        //     cout << "columns x Rows = " + to_string(rows * columns) + ", while the number of vides is " + to_string(files.size()) << endl;
+        //     // perror("");
+        //     return EXIT_FAILURE;
+        // }
 
         int width = 1920 / columns;
         int height = 1080 / rows;
@@ -132,8 +133,6 @@ string get_args(vector<string> *files, int rows, int columns, int width, int hei
         {
             cout << "Getting file " << files->at(i) << endl;
             string file_without_extension = files->at(i).substr(0, files->at(i).rfind("."));
-            cout << "Removing file " << file_without_extension << "_borderless" << extension << endl;
-            system(("rm " + file_without_extension + "_borderless" + extension).c_str());
             includes += (" -i cropped/" + files->at(i));
         }
     }
@@ -257,14 +256,42 @@ vector<string> *get_cropped_videos(vector<string> *_files, double *longestVideoL
             for (int i = 0; i < _files->size(); i++)
             {
                 string file_name = _files->at(i);
-                string new_file_name = file_name.substr(0, file_name.size() - extension.size()) + "_borderless" + extension;
-                string crop_detect = exec(("ffmpeg -i " + _files->at(i) + " -t 1 -vf cropdetect -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1").c_str());
-                system(("ffmpeg -i " + _files->at(i) + " -filter:v \"" + crop_detect + "\" " + new_file_name).c_str());
+                string frame_name = file_name.substr(0, file_name.rfind(".")) + ".jpg";
+                system(("ffmpeg -ss 00:00:00 -i " + file_name + " -vframes 1 -q:v 2 " + frame_name).c_str());
+                string res = exec(("identify -format '%wx%h' " + frame_name).c_str());
+                system(("rm " + frame_name).c_str());
 
-                string res = exec(("ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 " + new_file_name).c_str());
+                string sample_aspect_ratio_res = exec(("ffprobe -i " + file_name + " -show_streams | grep 'sample_aspect_ratio='").c_str());
+
+                sample_aspect_ratio_res = sample_aspect_ratio_res.substr(20);
+                int sample_aspect_ratio_width = atoi(sample_aspect_ratio_res.substr(0, sample_aspect_ratio_res.rfind(":")).c_str());
+                int sample_aspect_ratio_height = atoi(sample_aspect_ratio_res.substr(sample_aspect_ratio_res.rfind(":") + 1).c_str());
+
+                double sample_aspect_ratio = (double)sample_aspect_ratio_width / (double)sample_aspect_ratio_height;
+                if (isnan(sample_aspect_ratio))
+                {
+                    sample_aspect_ratio = 1;
+                }
+
+                cout << "Sample aspect ratio is " << sample_aspect_ratio << endl;
 
                 int vWidth = atoi(res.substr(0, res.rfind("x")).c_str());
                 int vHeight = atoi(res.substr(res.rfind("x") + 1, res.size() - 1).c_str());
+
+                if (sample_aspect_ratio > 1)
+                {
+                    vWidth *= sample_aspect_ratio;
+                    system(("ffmpeg -i " + file_name + " -vf scale=" + to_string(vWidth) + "x" + to_string(vHeight) + ",setsar=1:1 fixed." + file_name).c_str());
+                    // system(("rm " + file_name).c_str());
+                    system(("mv fixed." + file_name + " " + file_name).c_str());
+                }
+                else if (sample_aspect_ratio < 1)
+                {
+                    vHeight *= 1 / sample_aspect_ratio;
+                    system(("ffmpeg -i " + file_name + " -vf scale=" + to_string(vWidth) + "x" + to_string(vHeight) + ",setsar=1:1 fixed." + file_name).c_str());
+                    // system(("rm " + file_name).c_str());
+                    system(("mv fixed." + file_name + " " + file_name).c_str());
+                }
 
                 struct XYVector dimensions;
                 dimensions.x = vWidth;
@@ -289,14 +316,14 @@ vector<string> *get_cropped_videos(vector<string> *_files, double *longestVideoL
                     cout << "Sides are equal" << endl;
                 }
 
-                (*get_side(&dimensions, largerSide)) *= largerSide == Side::width ? factor : 1 / factor;
+                (*get_side(&dimensions, largerSide)) *= factor <= 1 ? factor : 1 / factor;
                 struct XYVector offset;
                 offset.x = 0;
                 offset.y = 0;
 
                 get_offset(&offset, &dimensions, largerSide, vWidth, vHeight);
 
-                string command = "ffmpeg -i " + new_file_name + " -filter:v \"crop=";
+                string command = "ffmpeg -i " + file_name + " -filter:v \"crop=";
                 command.append(to_string(dimensions.x));
                 command.append(":");
                 command.append(to_string(dimensions.y));
