@@ -13,6 +13,8 @@
 #include <string>
 #include <array>
 #include <math.h>
+#include <jsoncpp/json/json.h>
+#include <fstream>
 
 #include "XYVector.h"
 #include "SideEnum.h"
@@ -23,6 +25,7 @@ void run_ffmpeg(vector<string> *, int, int, int, int, string);
 string get_args(vector<string> *, int, int, int, int, string);
 vector<string> *get_cropped_videos(vector<string> *_files, double *longestVideoLength, string extension, int bWidth, int bHeight);
 string exec(const char *cmd);
+bool compareFunction(std::string a, std::string b) { return a < b; }
 
 int main()
 {
@@ -33,22 +36,16 @@ int main()
     //Stores the current entity from the readdir stream
     struct dirent *ent;
 
-    //Generic file name to be used to find all of the videos
-    string file_name;
+    //File Extension
+    string extension;
 
     //Rows
     int rows;
     //Columns
     int columns;
 
-    cout << "Please enter a generic video file name: ";
-    cin >> file_name;
-
-    //Pattern for all the names of the files without the extension
-    string name = file_name.substr(0, file_name.find("."));
-
-    //File Extension
-    string extension = file_name.substr(file_name.find("."));
+    cout << "Please enter a file extension (example: mp4): ";
+    cin >> extension;
 
     //List of files to be retreived from the program
     vector<string> files;
@@ -62,7 +59,7 @@ int main()
 
             //If the file name starts with the generic name and ends with the file extension
             string str = ent->d_name;
-            if (str.rfind(name, 0) == 0 && boost::ends_with(str, extension))
+            if (boost::ends_with(str, extension))
             {
                 //Add the file to the list of files
                 files.push_back(ent->d_name);
@@ -72,6 +69,8 @@ int main()
             }
         }
 
+        std::sort(files.begin(), files.end(), compareFunction);
+
         //Close the directory after finishing
         closedir(directory);
 
@@ -80,15 +79,10 @@ int main()
         cout << "Columns?: ";
         cin >> columns;
 
-        // if (columns * rows < files.size())
-        // {
-        //     cout << "columns x Rows = " + to_string(rows * columns) + ", while the number of vides is " + to_string(files.size()) << endl;
-        //     // perror("");
-        //     return EXIT_FAILURE;
-        // }
-
         int width = 1920 / columns;
         int height = 1080 / rows;
+
+        cout << "Dimensions are: " << to_string(width) << "x" << to_string(height) << endl;
 
         double longestVideoLength = 0;
         //Run the ffmpeg command with all of the files retreived
@@ -256,6 +250,8 @@ vector<string> *get_cropped_videos(vector<string> *_files, double *longestVideoL
             for (int i = 0; i < _files->size(); i++)
             {
                 string file_name = _files->at(i);
+                string json_file_name = file_name.substr(0, file_name.rfind(".")) + ".json";
+
                 string frame_name = file_name.substr(0, file_name.rfind(".")) + ".jpg";
                 system(("ffmpeg -ss 00:00:00 -i " + file_name + " -vframes 1 -q:v 2 " + frame_name).c_str());
                 string res = exec(("identify -format '%wx%h' " + frame_name).c_str());
